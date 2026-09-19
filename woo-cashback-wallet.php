@@ -3,7 +3,7 @@
  * Plugin Name: کش‌بک و کیف پول ووکامرس
  * Plugin URI: https://github.com/sahandse/woo-cashback-wallet
  * Description: کش‌بک درصدی یا مبلغ ثابت و کیف پول ووکامرس برای استفاده در خریدهای بعدی.
- * Version: 1.0.1
+ * Version: 1.1.0
  * Author: Sahand Rezvan
  * Author URI: https://github.com/sahandse
  * Text Domain: woo-cashback-wallet
@@ -15,7 +15,7 @@
 defined('ABSPATH') || exit;
 
 final class WCW_Plugin {
-    const VERSION = '1.0.1';
+    const VERSION = '1.1.0';
     const OPTION  = 'wcw_settings';
     const BALANCE_META = '_wcw_wallet_balance';
 
@@ -47,6 +47,11 @@ final class WCW_Plugin {
         add_action('woocommerce_order_status_completed', [$this, 'grant_cashback']);
         add_action('woocommerce_account_dashboard', [$this, 'wallet_summary']);
         add_shortcode('woo_cashback_wallet', [$this, 'wallet_shortcode']);
+        add_action('woocommerce_cart_calculate_fees', [$this, 'apply_wallet_fee'], 20);
+        add_action('woocommerce_checkout_create_order', [$this, 'store_wallet_usage'], 20, 2);
+        add_action('woocommerce_checkout_order_processed', [$this, 'deduct_wallet'], 20, 3);
+        add_action('woocommerce_order_status_cancelled', [$this, 'restore_wallet']);
+        add_action('woocommerce_order_status_failed', [$this, 'restore_wallet']);
     }
 
     public function woocommerce_notice() {
@@ -187,8 +192,8 @@ final class WCW_Plugin {
                     </section>
 
                     <section class="wcw-card">
-                        <h2>وضعیت توسعه</h2>
-                        <p>هسته اعتبار کیف پول و ثبت کش‌بک سفارش تکمیل شده است. اعمال کیف پول به‌عنوان روش پرداخت و SMS واقعی در نسخه‌های بعدی همین Repo توسعه داده می‌شود.</p>
+                        <h2>پرداخت با کیف پول</h2>
+                        <p>در Checkout، موجودی کاربر تا سقف مبلغ قابل پرداخت به‌صورت خودکار اعمال می‌شود. اگر سفارش لغو یا ناموفق شود، اعتبار یک‌بار بازگردانده می‌شود.</p>
                     </section>
                 </div>
                 <?php submit_button('ذخیره تنظیمات'); ?>
@@ -252,7 +257,58 @@ final class WCW_Plugin {
         return '<div class="wcw-wallet-card"><strong>موجودی کیف پول:</strong> ' .
             wp_kses_post(wc_price($balance)) .
             '<p>این اعتبار فقط برای خریدهای بعدی قابل استفاده است.</p></div>';
+    }    public function apply_wallet_fee($cart) {
+        if (is_admin() && !defined('DOING_AJAX')) return;
+        $s=$this->settings();
+        if('yes'!==$s['enabled']||'yes'!==$s['use_wallet']||!is_user_logged_in()||!$cart) return;
+        $balance=(float)get_user_meta(get_current_user_id(),self::BALANCE_META,true);
+        if($balance<=0) return;
+
+        $base=max(0,(float)$cart->get_cart_contents_total() + (float)$cart->get_shipping_total() + (float)$cart->get_fee_total());
+        $use=min($balance,$base);
+        if($use<=0) return;
+
+        if(WC()->session) WC()->session->set('wcw_wallet_use',$use);
+        $cart->add_fee('اعتبار کیف پول', -$use, false);
     }
+
+    public function store_wallet_usage($order,$data) {
+        if(!WC()->session) return;
+        $use=(float)WC()->session->get('wcw_wallet_use',0);
+        if($use>0) $order->update_meta_data('_wcw_wallet_used',$use);
+    }
+
+    public function deduct_wallet($order_id,$posted_data,$order) {
+        if(!$order instanceof WC_Order) $order=wc_get_order($order_id);
+        if(!$order||!$order->get_user_id()) return;
+        if('yes'===$order->get_meta('_wcw_wallet_deducted')) return;
+        $use=(float)$order->get_meta('_wcw_wallet_used');
+        if($use<=0) return;
+
+        $uid=$order->get_user_id();
+        $balance=(float)get_user_meta($uid,self::BALANCE_META,true);
+        $actual=min($balance,$use);
+        update_user_meta($uid,self::BALANCE_META,max(0,$balance-$actual));
+        $order->update_meta_data('_wcw_wallet_used',$actual);
+        $order->update_meta_data('_wcw_wallet_deducted','yes');
+        $order->save();
+        if(WC()->session) WC()->session->__unset('wcw_wallet_use');
+    }
+
+    public function restore_wallet($order_id) {
+        $order=wc_get_order($order_id);
+        if(!$order||!$order->get_user_id()) return;
+        if('yes'!==$order->get_meta('_wcw_wallet_deducted')||'yes'===$order->get_meta('_wcw_wallet_restored')) return;
+        $use=(float)$order->get_meta('_wcw_wallet_used');
+        if($use<=0) return;
+        $uid=$order->get_user_id();
+        $balance=(float)get_user_meta($uid,self::BALANCE_META,true);
+        update_user_meta($uid,self::BALANCE_META,$balance+$use);
+        $order->update_meta_data('_wcw_wallet_restored','yes');
+        $order->save();
+    }
+
+
 }
 
 new WCW_Plugin();
