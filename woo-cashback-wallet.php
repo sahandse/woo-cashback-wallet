@@ -235,6 +235,8 @@ final class WCW_Plugin {
         $new_balance = $balance + $cashback;
 
         update_user_meta($user_id, self::BALANCE_META, $new_balance);
+        $phone=$order->get_billing_phone();
+        if($phone) apply_filters('s_store_sms_send',null,$phone,'مبلغ '.wp_strip_all_tags(wc_price($cashback)).' کش‌بک به کیف پول شما اضافه شد.','cashback-wallet');
         $order->update_meta_data('_wcw_cashback_granted', 'yes');
         $order->update_meta_data('_wcw_cashback_amount', $cashback);
         $order->save();
