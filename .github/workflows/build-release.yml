@@ -1,9 +1,16 @@
-name: Build Plugin ZIP
+name: Build woo-cashback-wallet Installable ZIP
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - '**/*.php'
+      - 'assets/**'
+      - 'includes/**'
+      - 'languages/**'
+      - 'readme.txt'
+      - 'README.md'
+      - '.github/workflows/build-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -12,30 +19,42 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare plugin
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        shell: bash
         run: |
-          mkdir -p build/woo-cashback-wallet
-          rsync -av --exclude='.git' --exclude='.github' --exclude='build' ./ build/woo-cashback-wallet/
-
-      - name: Create ZIP
+          VERSION=$(grep 'Version:' woo-cashback-wallet.php | head -1 | sed 's/.*Version:[[:space:]]*//')
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: PHP syntax check
+        shell: bash
         run: |
+          set -e
+          find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: Build ZIP
+        shell: bash
+        run: |
+          rm -rf dist build
+          mkdir -p dist build/woo-cashback-wallet
+          rsync -a --exclude='.git' --exclude='.github' --exclude='build' --exclude='dist' ./ build/woo-cashback-wallet/
           cd build
-          zip -r woo-cashback-wallet.zip woo-cashback-wallet
-
+          zip -qr ../dist/woo-cashback-wallet.zip woo-cashback-wallet
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: woo-cashback-wallet
-          path: build/woo-cashback-wallet.zip
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/woo-cashback-wallet.zip
-          generate_release_notes: true
+          name: woo-cashback-wallet-v${{ steps.version.outputs.version }}
+          path: dist/woo-cashback-wallet.zip
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          TAG="woo-cashback-wallet-v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/woo-cashback-wallet.zip --clobber
+          else
+            gh release create "$TAG" dist/woo-cashback-wallet.zip --title "woo-cashback-wallet v${VERSION}" --notes "Installable WordPress ZIP for woo-cashback-wallet v${VERSION}."
+          fi
