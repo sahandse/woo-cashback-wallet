@@ -3,7 +3,7 @@
  * Plugin Name: کش‌بک و کیف پول ووکامرس
  * Plugin URI: https://github.com/sahandse/woo-cashback-wallet
  * Description: کش‌بک درصدی یا مبلغ ثابت و کیف پول ووکامرس برای استفاده در خریدهای بعدی.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Sahand Rezvan
  * Author URI: https://github.com/sahandse
  * Text Domain: woo-cashback-wallet
@@ -15,7 +15,7 @@
 defined('ABSPATH') || exit;
 
 final class WCW_Plugin {
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const OPTION  = 'wcw_settings';
     const BALANCE_META = '_wcw_wallet_balance';
 
@@ -91,6 +91,10 @@ final class WCW_Plugin {
     }
 
     public function admin_menu() {
+        if (function_exists('s_store_register_submenu')) {
+            s_store_register_submenu('woo-cashback-wallet', 'کش‌بک و کیف پول', [$this, 'settings_page'], 'manage_woocommerce', 'کش‌بک و کیف پول');
+            return;
+        }
         add_submenu_page(
             'woocommerce',
             'کش‌بک و کیف پول',
